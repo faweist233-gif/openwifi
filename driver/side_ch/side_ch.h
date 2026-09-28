@@ -10,6 +10,12 @@ const char *side_ch_compatible_str = "sdr,side_ch";
 #define EQUALIZER_LEN (56-4) // for non HT, four {32767,32767} will be padded to achieve 52 (non HT should have 48)
 #define HEADER_LEN 2 //timestamp and frequency offset
 
+// combined mode (csi_iq_combined=1) record length in 64bit words, MUST match the RTL
+// localparam record_len in side_ch_control.v:
+//   [IQ block: TSF + iq_len samples][CSI block: TSF + phase_offset + 56 CSI + num_eq*52 EQ]
+#define CSI_BLK_LEN(num_eq) (HEADER_LEN + CSI_LEN + (num_eq)*EQUALIZER_LEN)
+#define RECORD_LEN(iq_len, num_eq) ((1+(iq_len)) + CSI_BLK_LEN(num_eq))
+
 #define MAX_NUM_DMA_SYMBOL                         8192   //align with side_ch.v side_ch.h
 
 #define SIDE_CH_REG_MULTI_RST_ADDR                 (0*4)

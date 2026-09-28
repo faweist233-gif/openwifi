@@ -32,12 +32,20 @@
 
 static int num_eq_init = 8; // should be 0~8
 static int iq_len_init = 0; //if iq_len>0, iq capture enabled, csi disabled
+static int pre_trigger_init = 256; // pre_trigger_len in samples (C1 calibration constant for combined mode)
+static int combined_init = 0; //if combined_init>0, CSI + IQ combined capture enabled (csi_iq_combined=1)
 
 module_param(num_eq_init, int, 0);
 MODULE_PARM_DESC(num_eq_init, "num_eq_init. 0~8. number of equalizer output (52 each) appended to CSI");
 
 module_param(iq_len_init, int, 0);
 MODULE_PARM_DESC(iq_len_init, "iq_len_init. if iq_len_init>0, iq capture enabled, csi disabled");
+
+module_param(pre_trigger_init, int, 0);
+MODULE_PARM_DESC(pre_trigger_init, "pre_trigger_len in samples. C1 calibration constant: distance from long_preamble_detected peak back to packet start. Written to reg11. Default 256.");
+
+module_param(combined_init, int, 0);
+MODULE_PARM_DESC(combined_init, "combined_init. 1 = CSI + preamble IQ combined capture (reg3 bit0|bit1). IQ window locked by long_preamble_detected, pushed on CSI FC/addr commit.");
 
 static void __iomem *base_addr; // to store driver specific base address needed for mmu to translate virtual address to physical address in our FPGA design
 
@@ -370,7 +378,9 @@ static int get_side_info(int num_eq, int iq_len) {
 
 	set_user_nice(current, 10);
 
-	if (iq_len>0)
+	if (combined_init)
+		num_dma_symbol_per_trans = RECORD_LEN(iq_len, num_eq);
+	else if (iq_len>0)
 		num_dma_symbol_per_trans = 1+iq_len;
 	else
 		num_dma_symbol_per_trans = HEADER_LEN + CSI_LEN + num_eq*EQUALIZER_LEN;
@@ -577,10 +587,26 @@ static int dev_probe(struct platform_device *pdev) {
 			iq_len_init = 8187;
 			printk("%s dev_probe: limit iq_len_init to 8187!\n",side_ch_compatible_str);
 		}
-		SIDE_CH_REG_IQ_CAPTURE_write(1);
-		SIDE_CH_REG_PRE_TRIGGER_LEN_write(8190);
-		SIDE_CH_REG_IQ_LEN_write(iq_len_init);
-		SIDE_CH_REG_IQ_TRIGGER_write(0); // trigger is set to fcs ok/nok (both)
+		if (combined_init) {
+			// whole combined record must fit the m_axis FIFO. E316 (SIDE_CH_LESS_BRAM)
+			// has 4096 64bit words; clamp iq_len so record_len <= 4096.
+			int combined_max_iq_len = 4096 - CSI_BLK_LEN(num_eq_init) - 1;
+			if (iq_len_init > combined_max_iq_len) {
+				iq_len_init = combined_max_iq_len;
+				printk("%s dev_probe: limit iq_len_init to %d for combined mode on 4096-word FIFO!\n", side_ch_compatible_str, iq_len_init);
+			}
+			SIDE_CH_REG_IQ_CAPTURE_write(3); // bit0 iq_capture + bit1 csi_iq_combined
+			SIDE_CH_REG_PRE_TRIGGER_LEN_write(pre_trigger_init);
+			SIDE_CH_REG_IQ_LEN_write(iq_len_init);
+			// do NOT set IQ_TRIGGER: RTL two-stage trigger is internal
+			// (long_preamble_detected locks window, CSI FC/addr commit pushes IQ block)
+		} else {
+			SIDE_CH_REG_IQ_CAPTURE_write(1);
+			// was hardcoded 8190 (truncated on E316 pre_trigger_len); use parameter
+			SIDE_CH_REG_PRE_TRIGGER_LEN_write(pre_trigger_init);
+			SIDE_CH_REG_IQ_LEN_write(iq_len_init);
+			SIDE_CH_REG_IQ_TRIGGER_write(0); // trigger is set to fcs ok/nok (both)
+		}
 	}
 
 	SIDE_CH_REG_CONFIG_write(0x0001); // allow all packets by default; bit12 FC; bit13 addr1; bit14 addr2
