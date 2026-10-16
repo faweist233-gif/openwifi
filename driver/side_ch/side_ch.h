@@ -10,6 +10,10 @@ const char *side_ch_compatible_str = "sdr,side_ch";
 #define EQUALIZER_LEN (56-4) // for non HT, four {32767,32767} will be padded to achieve 52 (non HT should have 48)
 #define HEADER_LEN 2 //timestamp and frequency offset
 
+// P2 combined mode (reg3 bit0 | bit1): IQ record followed by CSI record on one m_axis stream
+#define SIDE_CH_COMBINED 3 // reg3 = (1<<0) iq_capture | (1<<1) csi_iq_combined
+#define CSI_BLK_LEN (HEADER_LEN + CSI_LEN) // TSF + phase_offset + 56 CSI (EQ appended separately)
+
 #define MAX_NUM_DMA_SYMBOL                         8192   //align with side_ch.v side_ch.h
 
 #define SIDE_CH_REG_MULTI_RST_ADDR                 (0*4)

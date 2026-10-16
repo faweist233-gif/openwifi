@@ -32,12 +32,20 @@
 
 static int num_eq_init = 8; // should be 0~8
 static int iq_len_init = 0; //if iq_len>0, iq capture enabled, csi disabled
+static int combined_init = 0; // P2: if iq_len_init>0 and combined_init==1 -> combined CSI+IQ mode (reg3=3)
+static int pre_trigger_init = 320; // P2: reg11 value in combined mode. C1 calibration constant (~256-320+pipeline)
 
 module_param(num_eq_init, int, 0);
 MODULE_PARM_DESC(num_eq_init, "num_eq_init. 0~8. number of equalizer output (52 each) appended to CSI");
 
 module_param(iq_len_init, int, 0);
 MODULE_PARM_DESC(iq_len_init, "iq_len_init. if iq_len_init>0, iq capture enabled, csi disabled");
+
+module_param(combined_init, int, 0);
+MODULE_PARM_DESC(combined_init, "combined_init. if iq_len_init>0 and combined_init==1, combined CSI+IQ mode (reg3=3)");
+
+module_param(pre_trigger_init, int, 0);
+MODULE_PARM_DESC(pre_trigger_init, "pre_trigger_init. reg11 (C1) written in combined mode; E316 <= 4094");
 
 static void __iomem *base_addr; // to store driver specific base address needed for mmu to translate virtual address to physical address in our FPGA design
 
@@ -370,7 +378,9 @@ static int get_side_info(int num_eq, int iq_len) {
 
 	set_user_nice(current, 10);
 
-	if (iq_len>0)
+	if (iq_len>0 && combined_init)
+		num_dma_symbol_per_trans = (1+iq_len) + (CSI_BLK_LEN + num_eq*EQUALIZER_LEN); // P2 combined: IQ record + CSI record
+	else if (iq_len>0)
 		num_dma_symbol_per_trans = 1+iq_len;
 	else
 		num_dma_symbol_per_trans = HEADER_LEN + CSI_LEN + num_eq*EQUALIZER_LEN;
@@ -571,7 +581,23 @@ static int dev_probe(struct platform_device *pdev) {
 	SIDE_CH_REG_CONFIG_write(0x7001); // the most strict condition to prevent side channel action
 	SIDE_CH_REG_IQ_TRIGGER_write(10); // set iq trigger to rssi, which will never happen when rssi_th is 0
 	SIDE_CH_REG_NUM_EQ_write(num_eq_init);      // capture CSI + 8*equalizer by default
-	if (iq_len_init>0) {//initialize the side channel into iq capture mode
+	if (iq_len_init>0 && combined_init) {//P2 combined CSI+IQ mode (two-stage trigger in FPGA)
+		//Max UDP 65507 bytes; (65507/8)-1 = 8187
+		if (iq_len_init>8187) {
+			iq_len_init = 8187;
+			printk("%s dev_probe: limit iq_len_init to 8187!\n",side_ch_compatible_str);
+		}
+		//E316 (Z7020) small FPGA limit; must not use the 8190 IQ-mode default
+		if (pre_trigger_init>4094) {
+			pre_trigger_init = 4094;
+			printk("%s dev_probe: limit pre_trigger_init to 4094 (E316)!\n",side_ch_compatible_str);
+		}
+		SIDE_CH_REG_IQ_CAPTURE_write(SIDE_CH_COMBINED); // reg3 = 3: iq_capture | csi_iq_combined
+		SIDE_CH_REG_PRE_TRIGGER_LEN_write(pre_trigger_init); // reg11 = C1 (long_preamble_detected -> packet start)
+		SIDE_CH_REG_IQ_LEN_write(iq_len_init); // reg12
+		// reg8 not written: combined mode locks on long_preamble_detected and pushes on csi_commit
+		printk("%s dev_probe: combined mode iq_len %d pre_trigger %d num_eq %d\n",side_ch_compatible_str, iq_len_init, pre_trigger_init, num_eq_init);
+	} else if (iq_len_init>0) {//initialize the side channel into iq capture mode
 		//Max UDP 65507 bytes; (65507/8)-1 = 8187
 		if (iq_len_init>8187) {
 			iq_len_init = 8187;
