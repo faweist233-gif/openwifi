@@ -582,6 +582,20 @@ static int dev_probe(struct platform_device *pdev) {
 	SIDE_CH_REG_IQ_TRIGGER_write(10); // set iq trigger to rssi, which will never happen when rssi_th is 0
 	SIDE_CH_REG_NUM_EQ_write(num_eq_init);      // capture CSI + 8*equalizer by default
 	if (iq_len_init>0 && combined_init) {//P2 combined CSI+IQ mode (two-stage trigger in FPGA)
+		// Combined record must fit the E316 m_axis FIFO (4096 x 64-bit words).
+		{
+			int combined_max_iq_len = SIDE_CH_M_AXIS_FIFO_DEPTH
+				- (HEADER_LEN + CSI_LEN)
+				- num_eq_init * EQUALIZER_LEN
+				- SIDE_CH_MAC_HDR_LEN - 1;
+			if (combined_max_iq_len < 0)
+				combined_max_iq_len = 0;
+			if (iq_len_init > combined_max_iq_len) {
+				iq_len_init = combined_max_iq_len;
+				printk("%s dev_probe: limit iq_len_init to %d for combined mode on 4096-word FIFO!\n",
+				       side_ch_compatible_str, iq_len_init);
+			}
+		}
 		//Max UDP 65507 bytes; (65507/8)-1 = 8187
 		if (iq_len_init>8187) {
 			iq_len_init = 8187;
@@ -607,6 +621,9 @@ static int dev_probe(struct platform_device *pdev) {
 		SIDE_CH_REG_PRE_TRIGGER_LEN_write(8190);
 		SIDE_CH_REG_IQ_LEN_write(iq_len_init);
 		SIDE_CH_REG_IQ_TRIGGER_write(0); // trigger is set to fcs ok/nok (both)
+	} else {
+		// iq_len_init==0: pure CSI; clear any previous combined/IQ capture bits.
+		SIDE_CH_REG_IQ_CAPTURE_write(0);
 	}
 
 	SIDE_CH_REG_CONFIG_write(0x0001); // allow all packets by default; bit12 FC; bit13 addr1; bit14 addr2

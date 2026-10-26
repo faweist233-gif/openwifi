@@ -14,6 +14,8 @@ const char *side_ch_compatible_str = "sdr,side_ch";
 #define SIDE_CH_COMBINED 3 // reg3 = (1<<0) iq_capture | (1<<1) csi_iq_combined
 #define CSI_BLK_LEN (HEADER_LEN + CSI_LEN) // TSF + phase_offset + 56 CSI (EQ appended separately)
 #define SIDE_CH_MAC_HDR_LEN 3 // P2.1: FC/DI + addr1/2/3 + pkt_len appended in combined mode
+#define SIDE_CH_M_AXIS_FIFO_DEPTH 4096 // E316 SIDE_CH_LESS_BRAM: 4096 x 64-bit words
+#define SIDE_CH_RECORD_LEN(iq_len, num_eq) ((1+(iq_len)) + HEADER_LEN + CSI_LEN + (num_eq)*EQUALIZER_LEN + SIDE_CH_MAC_HDR_LEN)
 
 #define MAX_NUM_DMA_SYMBOL                         8192   //align with side_ch.v side_ch.h
 
