@@ -379,7 +379,7 @@ static int get_side_info(int num_eq, int iq_len) {
 	set_user_nice(current, 10);
 
 	if (iq_len>0 && combined_init)
-		num_dma_symbol_per_trans = (1+iq_len) + (CSI_BLK_LEN + num_eq*EQUALIZER_LEN); // P2 combined: IQ record + CSI record
+		num_dma_symbol_per_trans = (1+iq_len) + (CSI_BLK_LEN + num_eq*EQUALIZER_LEN + SIDE_CH_MAC_HDR_LEN); // P2.1 combined: IQ + CSI + MAC header block
 	else if (iq_len>0)
 		num_dma_symbol_per_trans = 1+iq_len;
 	else
